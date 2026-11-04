@@ -1,0 +1,154 @@
+package org.aliveclean;
+
+import android.app.KeyguardManager;
+import android.content.*;
+import android.os.Bundle;
+import android.service.wallpaper.WallpaperService;
+import android.view.SurfaceHolder;
+
+public final class CleanWallpaper extends WallpaperService {
+    @Override public Engine onCreateEngine(){return new SceneEngine();}
+    final class SceneEngine extends Engine implements SceneChannel.Listener {
+        RenderLoop renderer;
+        boolean ambient;
+        final SceneState scenesState=new SceneState();
+        boolean regionObserverRegistered,receivedLayout;
+        boolean wallpaperVisible,renderVisible;
+        int lastDisplayState=android.view.Display.STATE_UNKNOWN;
+        long transitionHoldUntil;
+        final android.os.Handler main=new android.os.Handler(android.os.Looper.getMainLooper());
+        final Runnable transitionExpiry=()->refreshVisibility();
+        boolean dimObserverRegistered;
+        final android.database.ContentObserver dimSetting=new android.database.ContentObserver(new android.os.Handler(android.os.Looper.getMainLooper())){
+            @Override public void onChange(boolean selfChange){readWallpaperDim();}
+        };
+        android.hardware.display.DisplayManager displayManager;
+        final android.hardware.display.DisplayManager.DisplayListener displays=new android.hardware.display.DisplayManager.DisplayListener(){
+            public void onDisplayAdded(int id){refreshVisibility();}
+            public void onDisplayRemoved(int id){refreshVisibility();}
+            public void onDisplayChanged(int id){if(id==engineDisplayId())refreshVisibility();}
+        };
+        final android.database.ContentObserver area=new android.database.ContentObserver(new android.os.Handler(android.os.Looper.getMainLooper())){
+            @Override public void onChange(boolean selfChange){readOfficialRegion();}
+        };
+        final BroadcastReceiver state=new BroadcastReceiver(){@Override public void onReceive(Context c,Intent intent){if(Intent.ACTION_CONFIGURATION_CHANGED.equals(intent.getAction()))readWallpaperDim();update();refreshVisibility();}};
+        final BroadcastReceiver scenes=new BroadcastReceiver(){@Override public void onReceive(Context c,Intent intent){
+            if(isPreview())return;
+            if(ColorOsBridge.ACTION_LAYOUT.equals(intent.getAction())){
+                if(intent.getIntExtra("version",0)!=1)return;
+                AodRegion region=AodRegion.create(intent.getIntExtra("display",-1),intent.getIntExtra("width",0),intent.getIntExtra("height",0),intent.getIntExtra("left",0),intent.getIntExtra("top",0),intent.getIntExtra("right",0),intent.getIntExtra("bottom",0));
+                region(region);
+                return;
+            }
+            if(!ColorOsBridge.ACTION.equals(intent.getAction()))return;
+            int next=intent.getIntExtra("mode",-1);
+            if(next>=0&&next<=2)scene(next,intent.getBooleanExtra("animate",true),intent.getLongExtra("time",android.os.SystemClock.uptimeMillis()),intent.getIntExtra("phase",0),intent.getLongExtra("clock_wake",0),intent.getFloatExtra("vivo_night_level",Float.NaN),intent.getFloatExtra("vivo_aod_mask",Float.NaN));
+        }};
+        @Override public void onCreate(SurfaceHolder holder){
+            super.onCreate(holder);renderer=new RenderLoop(CleanWallpaper.this,isPreview()?SceneOptions.DRAFT:SceneOptions.APPLIED);
+            readWallpaperDim();
+            try{getContentResolver().registerContentObserver(android.provider.Settings.Secure.getUriFor("oplus_customize_settings_dark_wallpaper"),false,dimSetting);dimObserverRegistered=true;}
+            catch(RuntimeException error){android.util.Log.w("AliveClean","Wallpaper dim observer unavailable",error);}
+            renderer.visible(false);
+            displayManager=getSystemService(android.hardware.display.DisplayManager.class);
+            displayManager.registerDisplayListener(displays,new android.os.Handler(android.os.Looper.getMainLooper()));
+            if(!isPreview())SceneChannel.add(this);
+            IntentFilter f=new IntentFilter();f.addAction(Intent.ACTION_SCREEN_ON);f.addAction(Intent.ACTION_SCREEN_OFF);f.addAction(Intent.ACTION_USER_PRESENT);
+            f.addAction(Intent.ACTION_CONFIGURATION_CHANGED);
+            IntentFilter bridge=new IntentFilter(ColorOsBridge.ACTION);
+            bridge.addAction(ColorOsBridge.ACTION_LAYOUT);
+            // ColorOS SystemUI has its own UID. Allow that signed system sender explicitly,
+            // without exposing wallpaper state changes to ordinary third-party applications.
+            if(android.os.Build.VERSION.SDK_INT>=33){
+                registerReceiver(state,f,Context.RECEIVER_NOT_EXPORTED);
+                registerReceiver(scenes,bridge,ColorOsBridge.SENDER_PERMISSION,null,Context.RECEIVER_EXPORTED);
+            }else{
+                registerReceiver(state,f);
+                registerReceiver(scenes,bridge,ColorOsBridge.SENDER_PERMISSION,null);
+            }
+            if(!isPreview())try{
+                getContentResolver().registerContentObserver(android.provider.Settings.System.getUriFor("alive_wallpaper_position"),false,area);
+                regionObserverRegistered=true;
+            }catch(RuntimeException error){android.util.Log.w("AliveClean","AOD region observer unavailable",error);}
+            setTouchEventsEnabled(true);{if(Diagnostics.TRACE)android.util.Log.i("AliveClean","Wallpaper engine created preview="+isPreview());}
+        }
+        @Override public void scene(int next,boolean animate,long time,int phase,long clockToken,float nightLevel,float aodMask){
+            boolean changed=scenesState.accept(next,time,phase);
+            if(changed){ambient=next==0;holdTransition(next,animate);renderer.mode(next,animate,nightLevel,aodMask);}
+            else if(next==0&&animate){ambient=true;holdTransition(next,true);renderer.mode(next,true,nightLevel,aodMask);}
+            refreshVisibility();
+            if(scenesState.mode()==next&&engineDisplayId()==android.view.Display.DEFAULT_DISPLAY)renderer.clockTransition(clockToken);
+            {if(Diagnostics.TRACE)android.util.Log.i("AliveClean","Scene mode="+next+" changed="+changed+" animate="+animate+" phase="+phase+" delayMs="+(android.os.SystemClock.uptimeMillis()-time));}
+        }
+        @Override public void region(AodRegion region){
+            int display=engineDisplayId();
+            if(region!=null&&region.displayId==display){receivedLayout=true;renderer.aodRegion(region,display);}
+        }
+        @Override public void backdrop(boolean covered){if(!isPreview()&&engineDisplayId()==android.view.Display.DEFAULT_DISPLAY)renderer.backdrop(covered);}
+        @Override public void disconnected(){renderer.backdrop(false);scenesState.disconnect();update();}
+        private android.view.Display engineDisplay(){
+            if(android.os.Build.VERSION.SDK_INT>=30)return getDisplayContext().getDisplay();
+            return getSystemService(android.hardware.display.DisplayManager.class).getDisplay(android.view.Display.DEFAULT_DISPLAY);
+        }
+        private int engineDisplayId(){android.view.Display display=engineDisplay();return display==null?-1:display.getDisplayId();}
+        private void readOfficialRegion(){
+            if(isPreview()||renderer==null||receivedLayout)return;
+            try{
+                android.view.Display display=engineDisplay();
+                // Flyme's legacy setting contains no display identity; use it only on the main display.
+                if(display==null||display.getDisplayId()!=android.view.Display.DEFAULT_DISPLAY)return;
+                android.graphics.Point size=new android.graphics.Point();display.getRealSize(size);
+                AodRegion region=AodRegion.parse(display.getDisplayId(),size.x,size.y,android.provider.Settings.System.getString(getContentResolver(),"alive_wallpaper_position"));
+                if(region!=null)renderer.aodRegion(region,display.getDisplayId());
+            }catch(RuntimeException error){android.util.Log.w("AliveClean","AOD region unavailable",error);}
+        }
+        private void update(){KeyguardManager k=getSystemService(KeyguardManager.class);renderer.mode(isPreview()?1:scenesState.fallback(ambient,k.isKeyguardLocked()));}
+        private void holdTransition(int next,boolean animate){
+            if(!animate)return;
+            long duration=next==0?3500L:2200L;
+            transitionHoldUntil=Math.max(transitionHoldUntil,android.os.SystemClock.uptimeMillis()+duration);
+            main.removeCallbacks(transitionExpiry);main.postDelayed(transitionExpiry,duration+80L);
+        }
+        private void readWallpaperDim(){
+            boolean night=(getResources().getConfiguration().uiMode&android.content.res.Configuration.UI_MODE_NIGHT_MASK)==android.content.res.Configuration.UI_MODE_NIGHT_YES;
+            boolean dim=false;
+            try{dim=night&&android.provider.Settings.Secure.getInt(getContentResolver(),"oplus_customize_settings_dark_wallpaper",0)==1;}
+            catch(RuntimeException error){android.util.Log.w("AliveClean","Wallpaper dim setting unavailable",error);}
+            renderer.vivoDarkWallpaper(dim);
+        }
+        @Override public void onSurfaceChanged(SurfaceHolder h,int format,int w,int height){super.onSurfaceChanged(h,format,w,height);{if(Diagnostics.TRACE)android.util.Log.i("AliveClean","Surface changed "+w+"x"+height);}update();renderer.attach(h.getSurface(),w,height);readOfficialRegion();}
+        private void refreshVisibility(){
+            android.view.Display display=engineDisplay();
+            int state=display==null?android.view.Display.STATE_UNKNOWN:display.getState();
+            long now=android.os.SystemClock.uptimeMillis();
+            boolean hold=ambient||scenesState.mode()==0||now<transitionHoldUntil;
+            boolean next=(wallpaperVisible||hold)&&state!=android.view.Display.STATE_UNKNOWN&&
+                    (state!=android.view.Display.STATE_OFF||hold);
+            boolean displayChanged=state!=lastDisplayState;
+            lastDisplayState=state;
+            if(next!=renderVisible){renderVisible=next;renderer.visible(next);}
+            else if(next&&displayChanged)renderer.resumeDisplay();
+        }
+        @Override public void onVisibilityChanged(boolean visible){{if(Diagnostics.TRACE)android.util.Log.i("AliveClean","Wallpaper visible="+visible);}wallpaperVisible=visible;if(visible)update();refreshVisibility();}
+        // Framework @SystemApi callback: absent from the public SDK's stubs.
+        public void onAmbientModeChanged(boolean inAmbientMode,long duration){ambient=inAmbientMode;holdTransition(inAmbientMode?0:1,true);{if(Diagnostics.TRACE)android.util.Log.i("AliveClean","Ambient="+ambient);}update();refreshVisibility();}
+        @Override public Bundle onCommand(String action,int x,int y,int z,Bundle extras,boolean resultRequested){
+            {if(Diagnostics.TRACE)android.util.Log.i("AliveClean","Wallpaper command="+action+" authority="+scenesState.authoritative());}
+            boolean animate=extras==null||!extras.getBoolean("action_alive_animator_end",false);
+            if("action_alive_aod".equals(action)||"android.wallpaper.goingtosleep".equals(action)){
+                scene(0,animate,android.os.SystemClock.uptimeMillis(),1,0,Float.NaN,Float.NaN);
+            }else if("action_alive_lock".equals(action)||"android.wallpaper.keyguard_locked".equals(action)||"android.wallpaper.wakingup".equals(action)){
+                scene(1,animate,android.os.SystemClock.uptimeMillis(),2,0,Float.NaN,Float.NaN);
+            }else if("action_alive_launcher".equals(action)||"android.wallpaper.keyguard_going_away".equals(action)){
+                scene(2,animate,android.os.SystemClock.uptimeMillis(),3,0,Float.NaN,Float.NaN);
+            }
+            return super.onCommand(action,x,y,z,extras,resultRequested);
+        }
+        @Override public void onTouchEvent(android.view.MotionEvent event){
+            android.graphics.Rect frame=getSurfaceHolder().getSurfaceFrame();
+            if(renderer!=null&&frame.width()>0&&frame.height()>0)renderer.touch(event.getActionMasked(),event.getX()/frame.width(),event.getY()/frame.height());
+        }
+        @Override public void onSurfaceDestroyed(SurfaceHolder h){renderer.detach();super.onSurfaceDestroyed(h);}
+        @Override public void onDestroy(){SceneChannel.remove(this);displayManager.unregisterDisplayListener(displays);unregisterReceiver(state);unregisterReceiver(scenes);if(regionObserverRegistered)getContentResolver().unregisterContentObserver(area);if(dimObserverRegistered)getContentResolver().unregisterContentObserver(dimSetting);renderer.close();super.onDestroy();}
+    }
+}

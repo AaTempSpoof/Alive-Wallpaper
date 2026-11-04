@@ -1,0 +1,33 @@
+# 编译
+
+GitHub Actions 会在推送 `v*` 标签时编译、验证 APK，再发布 Release。手动运行默认只生成构建产物；勾选 `release` 时同时发布。
+
+发布前必须通过 `python tools/verify_release.py`：APK、SHA256SUMS、MD5SUMS 和 build-report.json 均与 `release/expected.json` 记录的本地审定文件逐字节一致。任一不同则停止发布，Actions 构建产物仍可下载分析。Actions 摘要直接显示 APK 的 MD5 和 SHA-256，无需下载 APK 即可核对；发布完整性检查仍以 SHA-256 为准。更新版本时应先完整本地构建，再更新该哈希清单。ZIP 时间戳、权限、条目顺序和压缩级别固定，报告统一 LF 换行；Rust 编译路径重映射为固定前缀。
+
+## 环境
+
+- Ubuntu 24.04、JDK 17、Python 3.12。
+- Rust 1.96.0（由 `rust-toolchain.toml` 固定）与 `aarch64-linux-android` 目标。
+- Android SDK Platform 35、Build Tools 35.0.0、NDK 29.0.14206865。
+- Xposed API 82（仅用于编译，由脚本下载并校验）。
+
+设置 `ANDROID_HOME`、`ANDROID_NDK_HOME`、`JAVA_HOME` 后执行：
+
+```sh
+rustup target add aarch64-linux-android
+python3 tools/build_release.py
+```
+
+结果在 `dist/`。脚本从 Java 和 Rust 源码编译宿主与渲染库，重新编译 UI 资源；魅族官方 UI 的预编译 DEX 位于 `vendor/flyme/`，不是本项目从源码编译的部分。
+
+未配置签名时会创建本地开发密钥。正式构建使用 `OPENALIVE_KEYSTORE`、`OPENALIVE_STORE_PASSWORD`、`OPENALIVE_KEY_ALIAS`（默认 `development`）；密钥不会进入仓库。GitHub 工作流通过仓库 Secrets 注入同一把密钥，方便覆盖安装。
+
+本机未显式设置 `OPENALIVE_KEYSTORE` 时，脚本优先读取用户目录 `.openalive-signing/signing.json` 的 `keystore`、`alias`、`password`。该目录位于仓库外，仅当前用户和 SYSTEM 可读；无需把密码写入构建命令。Windows 构建使用 JDK/Android SDK 处理资源与 Java，自动调用默认 WSL 的 `~/.cargo/bin/cargo` 和 `~/android-ndk-r29` 编译 Rust。
+
+Vivo 主体分割离线运行：固定的 U2NetP 模型位于 `app/assets/vivo/models/`，ONNX Runtime Android 的 Java 与 arm64 原生库位于 `vendor/onnxruntime/`。构建校验来源清单中的 SHA-256、原生库 16 KB 页对齐，并打包许可证；用户图片不上传到服务端。
+
+资源表以未压缩形式存储并按 4096 字节对齐，签名后再次检查。安装包包含 Flyme 9 浪流、深潜、涟漪原始视频，MP4 保持未压缩以供 AssetManager.openFd 解码；Vivo 光栅支持用户自选图片和视频。
+
+小米超级壁纸的列表和预览使用 `app/assets/xiaomi/ui.apk` 中的原版控件，构建会校验所有保留文件。需要重新生成时执行 `python tools/import_xiaomi_ui.py ThemeManager.apk 场景APK目录`，再执行 `python tools/import_xiaomi_packs.py 场景APK目录`。输入版本固定并校验原包；目录内应有 `moon.apk`、`snowmountain.apk`、`geometry.apk`、`saturn.apk`、`earth.apk` 和 `mars.apk`。
+
+六个场景以共享的 XZ 数据块内置，首次使用自动还原原包。构建逐块解压并校验六个完整 APK 的 SHA-256，保留原始签名、ZIP 布局和全部素材；新鲜检出可直接编译，不需要本地反编译目录。XZ for Java 1.12 的固定原版源码位于 `vendor/xz/`，编译其 Java 8 部分，不引入额外原生库。`.xz` 块在最终 APK 内保持 STORED，避免再次压缩增加体积与首用开销。
