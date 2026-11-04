@@ -68,3 +68,4 @@ __pycache__/
 /System.IO.FileStream
 /HANDOFF-*.txt
 /BUILD-FOR-CLAUDE.txt
+/.github/workflows/
