@@ -31,8 +31,8 @@ def javac_args(name,args):
 manifest=ET.parse(ROOT/'app/AndroidManifest.xml').getroot()
 version=manifest.attrib['{http://schemas.android.com/apk/res/android}versionName']
 application=manifest.find('application')
-label=application.attrib['{http://schemas.android.com/apk/res/android}label'] if application is not None else 'OpenAlive'
-app_name=label.replace(' ','').strip() or 'OpenAlive'
+label=application.attrib['{http://schemas.android.com/apk/res/android}label'] if application is not None else 'Alive壁纸'
+app_name=label.replace(' ','').strip() or 'Alive壁纸'
 apk=DIST/(app_name+'-'+version+'.apk')
 
 # Pin the compile-only API. It is never added to the APK.
@@ -161,7 +161,7 @@ if not key.exists():
     if 'OPENALIVE_KEYSTORE' in os.environ:raise FileNotFoundError('Configured signing key is missing')
     key.parent.mkdir(parents=True,exist_ok=True)
     run(JAVA/('keytool'+EXE),'-genkeypair','-keystore',key,'-storepass:env','OPENALIVE_STORE_PASSWORD','-keypass:env','OPENALIVE_STORE_PASSWORD',
-        '-alias',alias,'-keyalg','RSA','-keysize','3072','-validity','10000','-dname','CN=OpenAlive Development',env=env)
+        '-alias',alias,'-keyalg','RSA','-keysize','3072','-validity','10000','-dname','CN=Alive Wallpaper Development',env=env)
 run(JAVA/('java'+EXE),'-jar',BT/'lib/apksigner.jar','sign','--alignment-preserved','true','--ks',key,
     '--ks-pass','env:OPENALIVE_STORE_PASSWORD','--ks-key-alias',alias,'--out',apk,OUT/'aligned.apk',env=env)
 run(JAVA/('java'+EXE),'-jar',BT/'lib/apksigner.jar','verify','--verbose','--print-certs',apk)
