@@ -1,9 +1,9 @@
 {
-  "version": "0.4.68-preview",
+  "version": "1.1",
   "files": {
-    "OpenAlive-0.4.68-preview-arm64-v8a.apk": "6f3ae442f29c9344950f14d9a330b8dc279fc4185348ca1bc72d10d3191b6b47",
-    "SHA256SUMS": "80bf7ae68fa6e4c058724f1b11c60757e625cd4c95e3c805ef1a1747433f7482",
-    "MD5SUMS": "b131344247dd1e983238857359b260f457bc62e70517b8b5bd06f1e17ecd9ffb",
-    "build-report.json": "95dfb4e2d2a274cdf5f050ed7a0ac0e4bd47f28b2df8a1a7248cfc565af2f2f7"
+    "Alive壁纸-1.1.apk": "fc14f4e865a7750d68c6aff64c86767a6041115d1e7108a3ec213d175335ec2b",
+    "SHA256SUMS": "5129abf0828f57a985bac4fb7d07f4e5c69175562c44369163679dd40af538a5",
+    "MD5SUMS": "5e0084f7e678a81847d5ccbad4b36d79bfc62243cebc55c2af24b9408370359f",
+    "build-report.json": "f61a1fceba5d49b0f92388fffd2ad7e6bf2ab05dfee6bd0fba203c1a3b82dc2a"
   }
 }
