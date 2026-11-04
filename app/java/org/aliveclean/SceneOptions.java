@@ -14,10 +14,13 @@ final class SceneOptions {
     final boolean stereoAodAnimation;
     final float frameX,frameY,frameSize,frameAngle;
 
-    SceneOptions(SharedPreferences prefs) {
+    SceneOptions(SharedPreferences prefs) {this(prefs,-1);}
+    SceneOptions(SharedPreferences prefs,int forcedCosmic) {this(prefs,forcedCosmic,-1);}
+    SceneOptions(SharedPreferences prefs,int forcedCosmic,int forcedAod) {
         int a=prefs.getInt("aod",0),l=prefs.getInt("lock",2),h=prefs.getInt("home",6);
-        vivo=VivoOptions.parse(prefs.getString("vivo",""));
-        int c=prefs.getInt("cosmic",0);cosmic=supportedCosmic(c)?c:0;
+        if(forcedAod>=0)a=forcedAod;
+        vivo=forcedCosmic>=0?null:VivoOptions.parse(prefs.getString("vivo",""));
+        int c=forcedCosmic>=0?forcedCosmic:prefs.getInt("cosmic",0);cosmic=supportedCosmic(c)?c:0;
         cosmicKeepLock=prefs.getBoolean("cosmic_keep_lock",false);
         stereoSensitivity=Math.max(-50,Math.min(50,prefs.getInt("stereo_sensitivity",0)));
         stereoAodAnimation=prefs.getBoolean("stereo_aod_animation",true);

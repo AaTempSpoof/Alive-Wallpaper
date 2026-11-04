@@ -152,9 +152,14 @@ public class XiaomiPreviewActivity extends Activity implements SurfaceHolder.Cal
         if(detail==null){pendingPickerResult=result;return;}
         completePicker(result);
     }
-    private void completePicker(int result){awaitingPicker=false;
-        if(WallpaperPicker.applied(WallpaperManager.getInstance(this),new ComponentName(this,pack.component()),result,
-                pickerResultReliable,previousWallpaperId,previousLockId))new Thread(this::applied,"XiaomiAodApply").start();else cancelApply();
+    private void completePicker(final int result){awaitingPicker=false;
+        final WallpaperManager manager=WallpaperManager.getInstance(this);final ComponentName component=new ComponentName(this,pack.component());
+        if(WallpaperPicker.applied(manager,component,result,pickerResultReliable,previousWallpaperId,previousLockId)){new Thread(this::applied,"XiaomiAodApply").start();return;}
+        if(result!=RESULT_OK){cancelApply();return;}
+        // Wait for WallpaperManagerService to expose the component before using root fallback.
+        main.postDelayed(()->{if(!isDestroyed()&&WallpaperPicker.applied(manager,component,result,pickerResultReliable,previousWallpaperId,previousLockId))
+            new Thread(this::applied,"XiaomiAodApply").start();
+        else new Thread(()->{try{XiaomiApply.apply(this,pack);runOnUiThread(this::applied);}catch(Exception error){runOnUiThread(()->{cancelApply();failure(error);});}},"XiaomiRootApply").start();},900);
     }
     @Override public void onBackPressed(){if(choosing){choosing=false;showChoice();changeScene(false);}else super.onBackPressed();}
     @Override protected void onResume(){super.onResume();resumed=true;if(player!=null)try{player.running(true);}catch(Exception e){failure(e);}updateProgress();}

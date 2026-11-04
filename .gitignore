@@ -65,3 +65,5 @@ __pycache__/
 !/tools/check_xiaomi_aod_device.py
 !/tools/import_xiaomi_packs.py
 !/tools/ui-api/
+/System.IO.FileStream
+/备份/

@@ -33,6 +33,7 @@ public final class MainActivity extends Activity implements TextureView.SurfaceT
             int variant=getIntent().getIntExtra("cosmic_variant",0);
             if(SceneOptions.supportedCosmic(variant))draft.edit().putInt("cosmic",variant).apply();
             else if(getIntent().getBooleanExtra("photo_editor",false))draft.edit().putInt("cosmic",0).apply();
+            if(getIntent().hasExtra("photo_style"))draft.edit().putInt("cosmic",0).putInt("aod",getIntent().getIntExtra("photo_style",0)).apply();
         }
         if(state!=null){mode=state.getInt("mode",1);awaitingApply=state.getBoolean("awaitingApply",false);previousWallpaperId=state.getInt("previousWallpaperId",0);previousLockId=state.getInt("previousLockId",0);pickerResultReliable=state.getBoolean("pickerResultReliable",false);importTarget=state.getInt("importTarget",0);}
         renderer=new RenderLoop(this,SceneOptions.DRAFT);
@@ -80,6 +81,19 @@ public final class MainActivity extends Activity implements TextureView.SurfaceT
 
     private void applyDraft() {
         if(importing||awaitingApply)return;
+        if(PlatformSupport.isXiaomiFamily()&&!PlatformSupport.hasColorOsAod(this)){
+            toast("正在准备小米动态壁纸权限");
+            new Thread(()->{
+                String failure=null;
+                try{RootBridge.allowXiaomiWallpaperChange(this);}catch(Exception error){failure=error.getMessage()==null?error.toString():error.getMessage();}
+                String reason=failure;
+                runOnUiThread(()->{if(isFinishing()||isDestroyed())return;if(reason!=null){pickerFailure(reason);}else openWallpaperPicker();});
+            },"XiaomiWallpaperPermission").start();
+            return;
+        }
+        openWallpaperPicker();
+    }
+    private void openWallpaperPicker(){
         // Even an already-bound home service may not be applied to the lock screen.
         try{
             WallpaperManager manager=WallpaperManager.getInstance(this);
@@ -91,6 +105,7 @@ public final class MainActivity extends Activity implements TextureView.SurfaceT
     }
 
     private void toast(String text){Toast.makeText(this,text,Toast.LENGTH_LONG).show();}
+    private void pickerFailure(String reason){new android.app.AlertDialog.Builder(this).setTitle("无法应用动态壁纸").setMessage(reason).setPositiveButton("重试",(d,w)->applyDraft()).setNegativeButton("关闭",null).show();}
     private void importBusy(boolean busy){importing=busy;showScene();}
     private void commitDraft(){
         SceneOptions chosen=new SceneOptions(draft);

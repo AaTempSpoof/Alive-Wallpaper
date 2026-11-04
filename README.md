@@ -1,25 +1,17 @@
-# OpenAlive
+# Alive 壁纸
 
-把 Flyme Alive 的连贯动画带到 ColorOS，让息屏、锁屏和桌面接起来。
+这是基于 [OpenAlive](https://github.com/Maga-King/OpenAlive) 的 Alive 壁纸模块分支，保留息屏、锁屏和桌面的一镜到底动画，并把首页整理成适合一加与小米使用的“桌面、锁屏与个性化”布局。
 
-目前支持启航、留光、星月、轻启、山脉和银河，可以自选照片。选图后可按完整屏幕比例裁切，支持双指缩放、拖动和复位。留光支持独立相框照片、取景和角度调整，息屏时显示时间、日期和农历。
+首页由模块自己渲染，包含当前壁纸预览、Alive 壁纸相册入口、息屏/锁屏/桌面三态预览和 Alive 风格入口。魅族官方编辑器继续提供原有 Alive 风格、相册裁剪、相框以及三态效果设置。通知光效、主题、字体、Vivo Alive 和小米 Alive 首页入口已移除。
 
-另有魅族动态壁纸和通知光效：可以选择来通知时短暂点亮息屏、系统光效，或 Flyme 圆圈与双侧光带；圆圈支持预设和自定义颜色。
+支持启航、留光、星月、轻启、山脉和银河，可自选照片。需要 **Root + LSPosed**；启用模块后勾选系统框架、系统界面，以及 ColorOS 的 `com.oplus.wallpapers` 或小米的 `com.miui.aod`，再重启系统。
 
-Vivo Alive 壁纸包含液态、趣味光栅和闪卡，复用原版渲染器；支持自选素材、传感器灵敏度和可见息屏下的动画，完全不可见时暂停。
+下载：[Releases](https://github.com/Maga-King/OpenAlive/releases) · 编译：[BUILD.md](BUILD.md) · 发布说明：[docs/release-notes.md](docs/release-notes.md)
 
-小米 Alive 壁纸包含月球、雪山、几何、土星环、地球和火星，复用小米原版列表、预览控件与渲染器。六款已经内置，首次点击自动准备，无需下载、导入或安装原版应用。地球、月球和火星各有 5 个落地点。支持桌面翻页联动和原版 AOD 时钟；锁屏使用 ColorOS 时钟。详见[接入与测试记录](docs/xiaomi-wallpapers.md)。
+## 许可证和来源
 
-ColorOS 系统锁屏编辑器里也加入了魅族、澎湃和 Vivo 时钟，可调字体、颜色和效果，并支持息屏衔接与留光。新增 Vivo 玻璃与模糊效果会随壁纸实时变化。
+本分支的自实现代码沿用上游 [MIT](LICENSE) 许可证，并保留 OpenAlive 原作者版权声明。当前分支的首页布局、跨平台入口和 HyperOS 适配是本分支修改内容。
 
-需要 **Root + LSPosed**。安装后启用模块，勾选系统框架、系统界面和壁纸与个性化（`com.oplus.wallpapers`），重启，再打开应用选择并应用壁纸。目前主要在 ColorOS 17 上适配，其他系统还需要慢慢调。
+APK 和源码还包含魅族 Flyme、小米 ThemeManager、Vivo、澎湃以及其他上游项目的原始资源或运行库。这些内容不属于本项目 MIT 授权范围，来源、文件边界和随附许可证见 [THIRD_PARTY.md](THIRD_PARTY.md)。不要把整个 APK 或所有内置资源宣传为 MIT 作品，也不要移除第三方版权和许可证说明。
 
-下载：[Releases](https://github.com/Maga-King/OpenAlive/releases) · 编译：[BUILD.md](BUILD.md)
-
-自实现代码采用 [MIT](LICENSE) 许可。**部分资产来源于魅族22FlymeOS**，官方 UI、字体、壁纸及效果素材不纳入 MIT 授权，详见[资源说明](THIRD_PARTY.md)。
-
-还在持续完善。遇到问题欢迎提 Issue，带上系统版本、所选样式和复现步骤就好。
-
-如果用着顺手，也欢迎请我喝杯奶茶。
-
-<img src="docs/donate.png" alt="微信赞赏码" width="320" />
+这是非官方第三方模块，与魅族、一加、OPPO、Vivo、小米或 Google 没有隶属关系或官方背书。

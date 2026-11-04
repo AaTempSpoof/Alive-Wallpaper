@@ -15,6 +15,9 @@ public final class CleanWallpaper extends WallpaperService {
         boolean regionObserverRegistered,receivedLayout;
         boolean wallpaperVisible,renderVisible;
         int lastDisplayState=android.view.Display.STATE_UNKNOWN;
+        long transitionHoldUntil;
+        final android.os.Handler main=new android.os.Handler(android.os.Looper.getMainLooper());
+        final Runnable transitionExpiry=()->refreshVisibility();
         boolean dimObserverRegistered;
         final android.database.ContentObserver dimSetting=new android.database.ContentObserver(new android.os.Handler(android.os.Looper.getMainLooper())){
             @Override public void onChange(boolean selfChange){readWallpaperDim();}
@@ -71,7 +74,8 @@ public final class CleanWallpaper extends WallpaperService {
         }
         @Override public void scene(int next,boolean animate,long time,int phase,long clockToken,float nightLevel,float aodMask){
             boolean changed=scenesState.accept(next,time,phase);
-            if(changed){ambient=next==0;renderer.mode(next,animate,nightLevel,aodMask);}
+            if(changed){ambient=next==0;holdTransition(next,animate);renderer.mode(next,animate,nightLevel,aodMask);}
+            else if(next==0&&animate){ambient=true;holdTransition(next,true);renderer.mode(next,true,nightLevel,aodMask);}
             refreshVisibility();
             if(scenesState.mode()==next&&engineDisplayId()==android.view.Display.DEFAULT_DISPLAY)renderer.clockTransition(clockToken);
             {if(Diagnostics.TRACE)android.util.Log.i("AliveClean","Scene mode="+next+" changed="+changed+" animate="+animate+" phase="+phase+" delayMs="+(android.os.SystemClock.uptimeMillis()-time));}
@@ -99,6 +103,12 @@ public final class CleanWallpaper extends WallpaperService {
             }catch(RuntimeException error){android.util.Log.w("AliveClean","AOD region unavailable",error);}
         }
         private void update(){KeyguardManager k=getSystemService(KeyguardManager.class);renderer.mode(isPreview()?1:scenesState.fallback(ambient,k.isKeyguardLocked()));}
+        private void holdTransition(int next,boolean animate){
+            if(!animate)return;
+            long duration=next==0?3500L:2200L;
+            transitionHoldUntil=Math.max(transitionHoldUntil,android.os.SystemClock.uptimeMillis()+duration);
+            main.removeCallbacks(transitionExpiry);main.postDelayed(transitionExpiry,duration+80L);
+        }
         private void readWallpaperDim(){
             boolean night=(getResources().getConfiguration().uiMode&android.content.res.Configuration.UI_MODE_NIGHT_MASK)==android.content.res.Configuration.UI_MODE_NIGHT_YES;
             boolean dim=false;
@@ -110,7 +120,10 @@ public final class CleanWallpaper extends WallpaperService {
         private void refreshVisibility(){
             android.view.Display display=engineDisplay();
             int state=display==null?android.view.Display.STATE_UNKNOWN:display.getState();
-            boolean next=wallpaperVisible&&state!=android.view.Display.STATE_UNKNOWN&&state!=android.view.Display.STATE_OFF;
+            long now=android.os.SystemClock.uptimeMillis();
+            boolean hold=ambient||scenesState.mode()==0||now<transitionHoldUntil;
+            boolean next=(wallpaperVisible||hold)&&state!=android.view.Display.STATE_UNKNOWN&&
+                    (state!=android.view.Display.STATE_OFF||hold);
             boolean displayChanged=state!=lastDisplayState;
             lastDisplayState=state;
             if(next!=renderVisible){renderVisible=next;renderer.visible(next);}
@@ -118,14 +131,17 @@ public final class CleanWallpaper extends WallpaperService {
         }
         @Override public void onVisibilityChanged(boolean visible){{if(Diagnostics.TRACE)android.util.Log.i("AliveClean","Wallpaper visible="+visible);}wallpaperVisible=visible;if(visible)update();refreshVisibility();}
         // Framework @SystemApi callback: absent from the public SDK's stubs.
-        public void onAmbientModeChanged(boolean inAmbientMode,long duration){ambient=inAmbientMode;{if(Diagnostics.TRACE)android.util.Log.i("AliveClean","Ambient="+ambient);}update();refreshVisibility();}
+        public void onAmbientModeChanged(boolean inAmbientMode,long duration){ambient=inAmbientMode;holdTransition(inAmbientMode?0:1,true);{if(Diagnostics.TRACE)android.util.Log.i("AliveClean","Ambient="+ambient);}update();refreshVisibility();}
         @Override public Bundle onCommand(String action,int x,int y,int z,Bundle extras,boolean resultRequested){
             {if(Diagnostics.TRACE)android.util.Log.i("AliveClean","Wallpaper command="+action+" authority="+scenesState.authoritative());}
-            if(scenesState.authoritative())return super.onCommand(action,x,y,z,extras,resultRequested);
             boolean animate=extras==null||!extras.getBoolean("action_alive_animator_end",false);
-            if("action_alive_aod".equals(action)){ambient=true;renderer.mode(0,animate);}
-            else if("action_alive_lock".equals(action)||"android.wallpaper.keyguard_locked".equals(action)){ambient=false;renderer.mode(1,animate);}
-            else if("action_alive_launcher".equals(action)||"android.wallpaper.keyguard_going_away".equals(action)){ambient=false;renderer.mode(2,animate);}
+            if("action_alive_aod".equals(action)||"android.wallpaper.goingtosleep".equals(action)){
+                scene(0,animate,android.os.SystemClock.uptimeMillis(),1,0,Float.NaN,Float.NaN);
+            }else if("action_alive_lock".equals(action)||"android.wallpaper.keyguard_locked".equals(action)||"android.wallpaper.wakingup".equals(action)){
+                scene(1,animate,android.os.SystemClock.uptimeMillis(),2,0,Float.NaN,Float.NaN);
+            }else if("action_alive_launcher".equals(action)||"android.wallpaper.keyguard_going_away".equals(action)){
+                scene(2,animate,android.os.SystemClock.uptimeMillis(),3,0,Float.NaN,Float.NaN);
+            }
             return super.onCommand(action,x,y,z,extras,resultRequested);
         }
         @Override public void onTouchEvent(android.view.MotionEvent event){

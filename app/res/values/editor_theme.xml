@@ -1,4 +1,11 @@
 <resources>
+    <style name="Theme.Clean.Home" parent="Theme.AppCompat.Light">
+        <item name="android:windowActionBar">false</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowBackground">#F6F7F9</item>
+        <item name="android:colorAccent">#2F7CF6</item>
+        <item name="android:fontFamily">sans</item>
+    </style>
     <style name="Theme.Clean.Editor" parent="Theme.Flyme.AppCompat.Dark.Color.Blue">
         <item name="android:windowActionBar">false</item>
         <item name="android:windowNoTitle">true</item>

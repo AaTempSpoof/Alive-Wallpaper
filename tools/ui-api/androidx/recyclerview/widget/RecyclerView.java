@@ -6,6 +6,16 @@ public abstract class RecyclerView extends android.view.ViewGroup {
     public abstract void setAdapter(Adapter adapter);
     public abstract void setLayoutManager(LayoutManager manager);
     public abstract void setItemAnimator(ItemAnimator animator);
+    public abstract void addOnScrollListener(OnScrollListener listener);
+    public abstract LayoutManager getLayoutManager();
+    public abstract void scrollToPosition(int position);
+    public static class OnScrollListener {
+        public void onScrolled(RecyclerView view,int dx,int dy){}
+        public void onScrollStateChanged(RecyclerView view,int state){}
+    }
+    public static class LayoutParams extends android.view.ViewGroup.MarginLayoutParams {
+        public LayoutParams(int width,int height){super(width,height);}
+    }
     public static abstract class ItemAnimator {}
     public static abstract class LayoutManager {}
     public static abstract class ViewHolder {

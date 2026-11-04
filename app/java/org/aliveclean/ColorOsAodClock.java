@@ -84,7 +84,9 @@ final class ColorOsAodClock {
         this.context=context;xiaomi=style==101&&metadata!=null;
         if(!xiaomi)xiaomiEnterPending=false;
         host.configure(xiaomi?metadata:null);
-        enabled=installed&&selected&&(style==1||xiaomi);if(!enabled||xiaomi)wakeToken=0;reconcile();
+        // Only Xiaomi's own AOD face owns an independent clock host. ColorOS
+        // styles keep the stock system clock; the wallpaper only draws behind it.
+        enabled=installed&&selected&&xiaomi;if(!enabled||xiaomi)wakeToken=0;reconcile();
     }
     void scene(int value,boolean animate){
         if(value!=mode){

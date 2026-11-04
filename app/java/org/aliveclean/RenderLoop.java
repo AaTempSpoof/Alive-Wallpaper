@@ -49,6 +49,8 @@ final class RenderLoop {
     private long clockToken,seenClockToken;
     private final AodMotionWindow aodMotion=new AodMotionWindow();
     private final boolean preview;
+    private final int previewCosmicVariant;
+    private final int previewAodStyle;
     private AodRegion aodRegion;
     private int displayId;
     private volatile boolean closed;
@@ -62,7 +64,11 @@ final class RenderLoop {
     private boolean cropQueued,cropFinal;
     private final android.content.SharedPreferences.OnSharedPreferenceChangeListener changes=(p,key)->reload();
     RenderLoop(Context context){this(context,SceneOptions.APPLIED);}
-    RenderLoop(Context context,String name){this.context=context.getApplicationContext();preview=SceneOptions.DRAFT.equals(name);preferences=context.getSharedPreferences(name,0);thread.start();handler=new Handler(thread.getLooper());preferences.registerOnSharedPreferenceChangeListener(changes);}
+    RenderLoop(Context context,String name){this(context,name,SceneOptions.DRAFT.equals(name),-1);}
+    RenderLoop(Context context,int cosmicVariant){this(context,SceneOptions.APPLIED,true,cosmicVariant);}
+    RenderLoop(Context context,int cosmicVariant,int aodStyle){this(context,SceneOptions.APPLIED,true,cosmicVariant,aodStyle);}
+    private RenderLoop(Context context,String name,boolean isPreview,int forcedCosmic){this(context,name,isPreview,forcedCosmic,-1);}
+    private RenderLoop(Context context,String name,boolean isPreview,int forcedCosmic,int forcedAod){this.context=context.getApplicationContext();preview=isPreview;previewCosmicVariant=forcedCosmic;previewAodStyle=forcedAod;preferences=context.getSharedPreferences(name,0);thread.start();handler=new Handler(thread.getLooper());preferences.registerOnSharedPreferenceChangeListener(changes);}
     void attach(Surface surface,int w,int h){handler.post(()->{release();if(!surface.isValid()||w<1||h<1)return;try{init(surface,w,h);schedule();}catch(Exception e){Log.e("AliveClean","Renderer initialization failed",e);release();}});}
     void touch(int action,float x,float y){handler.post(()->{if(vivo!=null)vivo.touch(action,x,y);if(cosmic!=null&&action==0){cosmic.interaction();schedule();}});}
     void vivoDarkWallpaper(boolean dark){handler.post(()->{vivoDarkWallpaper=dark;if(vivo!=null){vivo.darkWallpaper(dark,renderingVisible());schedule();}});}
@@ -134,7 +140,7 @@ final class RenderLoop {
     });}
     void reload(){if(!closed){handler.removeCallbacks(reloadTask);handler.post(reloadTask);}}
     private void reloadScene(){if(scene==0&&cosmic==null&&vivo==null)return;try{
-        SceneOptions options=new SceneOptions(preferences);
+        SceneOptions options=new SceneOptions(preferences,previewCosmicVariant,previewAodStyle);
         if(cosmic instanceof StereoRenderer&&renderedOptions!=null&&options.cosmic==renderedOptions.cosmic&&options.cosmicKeepLock==renderedOptions.cosmicKeepLock){
             ((StereoRenderer)cosmic).configure(options.stereoSensitivity,options.stereoAodAnimation);
             renderedOptions=options;stereoAodAnimation=options.stereoAodAnimation;updateCosmicLifecycle();schedule();return;
@@ -227,7 +233,7 @@ final class RenderLoop {
     }
     private void clearAuxiliary(){GLES30.glDeleteTextures(auxiliary.length,auxiliary,0);java.util.Arrays.fill(auxiliary,0);}
     private void init(Surface surface,int w,int h)throws IOException{
-        SceneOptions options=new SceneOptions(preferences);attachedSurface=surface;
+        SceneOptions options=new SceneOptions(preferences,previewCosmicVariant,previewAodStyle);attachedSurface=surface;
         width=w;height=h;display=EGL14.eglGetDisplay(EGL14.EGL_DEFAULT_DISPLAY);
         int[] version=new int[2];if(!EGL14.eglInitialize(display,version,0,version,1))throw new IllegalStateException("eglInitialize");
         EGLConfig[] configs=new EGLConfig[1];int[] count=new int[1];

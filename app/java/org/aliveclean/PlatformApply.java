@@ -2,6 +2,7 @@ package org.aliveclean;
 
 import android.app.WallpaperInfo;
 import android.app.WallpaperManager;
+import android.content.ComponentName;
 import android.content.Context;
 import android.os.Bundle;
 import android.os.Looper;
@@ -16,7 +17,7 @@ public final class PlatformApply {
         System.out.println("ALIVE_ADAPTER_STARTED");
         try{
             if(Process.myUid()!=1000)throw new SecurityException("Platform adapter requires the system UID");
-            if(args.length!=1||(!"local-aod".equals(args[0])&&!"panoramic-aod".equals(args[0])&&!"clock-startup".equals(args[0])&&!"motion-permission".equals(args[0])))throw new IllegalArgumentException("Unsupported operation");
+            if(args.length!=1||(!"local-aod".equals(args[0])&&!"panoramic-aod".equals(args[0])&&!"clock-startup".equals(args[0])&&!"motion-permission".equals(args[0])&&!"set-wallpaper".equals(args[0])))throw new IllegalArgumentException("Unsupported operation");
             if(android.os.Build.VERSION.SDK_INT<31)throw new UnsupportedOperationException("Local AOD adapter requires Android 12 or later");
             if("clock-startup".equals(args[0])){
                 stage="clock-startup";
@@ -32,6 +33,38 @@ public final class PlatformApply {
                 stage="motion-permission";
                 boolean allowed=ColorOsMotionPermission.allow(context);
                 System.out.println("ALIVE_RESULT "+new JSONObject().put("ok",true).put("motionAllowed",allowed));
+                System.exit(0);
+            }
+            if("set-wallpaper".equals(args[0])){
+                stage="set-wallpaper";
+                if(android.os.Build.VERSION.SDK_INT<34)throw new UnsupportedOperationException("一键应用壁纸需要 Android 14 或更高版本");
+                WallpaperManager wm=WallpaperManager.getInstance(context);
+                ComponentName target=new ComponentName("org.aliveclean","org.aliveclean.CleanWallpaper");
+                boolean lockApplied=false;
+                // Break the home/lock pairing first, otherwise ColorOS rectifies
+                // a home-only set back to "both" and rejects the lock half because
+                // the app cannot hold signature|preinstalled AMBIENT_WALLPAPER.
+                try{
+                    android.graphics.Bitmap pixel=android.graphics.Bitmap.createBitmap(1,1,android.graphics.Bitmap.Config.ARGB_8888);
+                    wm.setBitmap(pixel,null,false,WallpaperManager.FLAG_LOCK);
+                    pixel.recycle();
+                }catch(Throwable pairing){/* keep going; some builds refuse the static lock fallback */}
+                try{
+                    java.lang.reflect.Method home=WallpaperManager.class.getDeclaredMethod("setWallpaperComponent",ComponentName.class);
+                    home.invoke(wm,target);
+                }catch(NoSuchMethodException hidden){
+                    java.lang.reflect.Method withFlags=WallpaperManager.class.getDeclaredMethod("setWallpaperComponentWithFlags",ComponentName.class,int.class);
+                    withFlags.invoke(wm,target,WallpaperManager.FLAG_SYSTEM);
+                }
+                try{
+                    java.lang.reflect.Method lock=WallpaperManager.class.getDeclaredMethod("setWallpaperComponentWithFlags",ComponentName.class,int.class);
+                    lock.invoke(wm,target,WallpaperManager.FLAG_LOCK);
+                    lockApplied=true;
+                }catch(Throwable lockFailure){lockApplied=false;}
+                WallpaperInfo applied=wm.getWallpaperInfo();
+                if(applied==null||!target.equals(applied.getComponent()))
+                    throw new IllegalStateException("组件未切换: "+(applied==null?"null":applied.getComponent().flattenToShortString()));
+                System.out.println("ALIVE_RESULT "+new JSONObject().put("ok",true).put("component",target.flattenToShortString()).put("lockApplied",lockApplied));
                 System.exit(0);
             }
             WallpaperManager manager=WallpaperManager.getInstance(context);
@@ -67,7 +100,9 @@ public final class PlatformApply {
             // Release both leases before exiting: System.exit does not run finally blocks.
             System.out.println("ALIVE_RESULT "+report);System.exit(0);
         }catch(Throwable error){
-            try{System.out.println("ALIVE_RESULT "+new JSONObject().put("ok",false).put("stage",stage).put("error",error.toString()));}catch(Exception ignored){}
+            Throwable cause=error;
+            while(cause instanceof java.lang.reflect.InvocationTargetException&&cause.getCause()!=null)cause=cause.getCause();
+            try{System.out.println("ALIVE_RESULT "+new JSONObject().put("ok",false).put("stage",stage).put("error",cause.toString()));}catch(Exception ignored){}
             System.exit(1);
         }
     }

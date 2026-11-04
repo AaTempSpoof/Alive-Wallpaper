@@ -1,145 +1,298 @@
 package org.aliveclean;
-
 import android.app.Activity;
+import android.app.WallpaperInfo;
+import android.app.WallpaperManager;
+import android.content.ActivityNotFoundException;
+import android.content.ComponentName;
+import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
+import android.graphics.BitmapFactory;
+import android.graphics.Color;
+import android.graphics.Rect;
+import android.graphics.drawable.GradientDrawable;
+import android.net.Uri;
 import android.os.Bundle;
+import android.provider.MediaStore;
 import android.view.*;
 import android.widget.*;
+import java.io.*;
 import java.util.ArrayList;
-
-/** Bind our destinations to the original personalization home layout. */
+/** OnePlus-style wallpaper home with a controlled card preview. */
 public final class HomeActivity extends Activity {
-    private SettingsUi ui;
-    private HomeActivationStatus activation;
+    private static final int BG=0xff17181a;
+    private static final int BLUE=0xff4c8dff;
+    private static final int CARD_WIDTH_DP=200,CARD_HEIGHT_DP=350,CARD_GAP_DP=12;
+    private static final int[] STYLES={0,1,2,3,4,5,101};
+    private static final String[] NAMES={"启航","留光","星月","轻启","山脉","银河","全屏 AOD"};
+    private static final String[] MODE_NAMES={"息屏","锁屏","桌面"};
     private final ArrayList<HomeScenePreview> previews=new ArrayList<>();
-    private int previewLoad;
+    private final ArrayList<View> cards=new ArrayList<>();
+    private final ArrayList<View> borders=new ArrayList<>();
+    private ModeSlider modeSlider;
+    private boolean resumed;
+    private int selectedCard=0,previewMode=1;
+    private boolean awaitingWallpaperApply,pickerResultReliable;
+    private int previousWallpaperId,previousLockId;
+    private String pendingStyleName;
+    private View carousel;private TextView styleTitle;
     @Override public void onCreate(Bundle state){
-        super.onCreate(state);
-        // ColorOS can deny SystemUI's cold ContentProvider start even when the
-        // module and provider are installed. Apply its own associated-startup
-        // setting once after installation or an app-data reset.
-        if(!getSharedPreferences("native_clock_startup",0).getBoolean("allowed",false)){
-            new Thread(()->{
-                try{
-                    RootBridge.allowClockStartup(this);
-                    getSharedPreferences("native_clock_startup",0).edit().putBoolean("allowed",true).apply();
-                }catch(Exception failure){android.util.Log.w("OpenAliveClock","Clock startup setup unavailable",failure);}
-            },"OpenAliveClockStartup").start();
-        }
+        super.onCreate(state);getWindow().setStatusBarColor(BG);getWindow().setNavigationBarColor(BG);
+        LinearLayout page=new LinearLayout(this);page.setOrientation(LinearLayout.VERTICAL);page.setGravity(Gravity.CENTER_HORIZONTAL);page.setBackgroundColor(BG);setContentView(page);
+        page.addView(new Space(this),new LinearLayout.LayoutParams(-1,0,1));
+        FrameLayout host=new FrameLayout(this);page.addView(host,new LinearLayout.LayoutParams(-1,dp(CARD_HEIGHT_DP)));
+        for(int i=0;i<STYLES.length;i++)cards.add(card(i));
         try{
-            ui=new SettingsUi(this);
-            LinearLayout screen=SettingsScreen.create(this,ui,"桌面、壁纸和个性化");
-            activation=new HomeActivationStatus(this,ui,screen);
-            View root=ui.inflate("activity_system_customize_center",screen);
-            ui.pageBackground(root);
-            screen.addView(root,new LinearLayout.LayoutParams(-1,0,1));
-            // Keep native constraints; GONE rows collapse using the official chain.
-            String[] hidden={"appearance_manage_tips",
-                "system_more_breath_lamp","system_text_wallpaper","system_more_alive","system_more_weather",
-                "system_more_selection","system_more_historical_theme","system_title_more","system_center_more","system_center_other","system_f11_layout"};
-            for(String id:hidden)ui.find(root,id).setVisibility(View.GONE);
-            View manage=ui.find(root,"system_layout_manager_appearance");
-            manage.setVisibility(View.GONE); // Meizu appearance-account management is not a local destination.
-            // The native fixed-height slot reserves space for its remote preview.
-            // Our local cards already measure their own image and caption heights.
-            for(String id:new String[]{"system_layout_include","system_layout_container"}){
-                View slot=ui.find(root,id);ViewGroup.LayoutParams slotLp=slot.getLayoutParams();
-                slotLp.height=ViewGroup.LayoutParams.WRAP_CONTENT;slot.setLayoutParams(slotLp);
-            }
-            View wallpaper=ui.find(root,"system_center_wallpaper");
-            topGap(wallpaper,12);
-            ui.cardBackground(wallpaper);
-            firstText(wallpaper).setText("动态壁纸");wallpaper.setOnClickListener(v->startActivity(new Intent(this,DynamicLibraryActivity.class)));
-            ViewGroup parent=(ViewGroup)wallpaper.getParent();
-            View alive=ui.inflate("view_system_center_wallpaper",parent);alive.setId(View.generateViewId());
-            ui.cardBackground(alive);
-            ViewGroup.LayoutParams lp=wallpaper.getLayoutParams().getClass().getConstructor(ViewGroup.LayoutParams.class).newInstance(wallpaper.getLayoutParams());
-            for(java.lang.reflect.Field field:lp.getClass().getFields())if(!java.lang.reflect.Modifier.isStatic(field.getModifiers())&&field.getType().isPrimitive())field.set(lp,field.get(wallpaper.getLayoutParams()));
-            replaceAnchor(lp,ui.id("id","system_layout_container"),wallpaper.getId());
-            ((ViewGroup.MarginLayoutParams)lp).topMargin=Math.round(12*getResources().getDisplayMetrics().density);
-            parent.addView(alive,lp);firstText(alive).setText("Alive 壁纸");alive.setOnClickListener(v->openEditor(1,true));
-            View vivo=ui.inflate("view_system_center_wallpaper",parent);vivo.setId(View.generateViewId());ui.cardBackground(vivo);
-            ViewGroup.LayoutParams vivoLp=lp.getClass().getConstructor(ViewGroup.LayoutParams.class).newInstance(lp);
-            for(java.lang.reflect.Field field:lp.getClass().getFields())if(!java.lang.reflect.Modifier.isStatic(field.getModifiers())&&field.getType().isPrimitive())field.set(vivoLp,field.get(lp));
-            replaceAnchor(vivoLp,wallpaper.getId(),alive.getId());parent.addView(vivo,vivoLp);firstText(vivo).setText("Vivo Alive 壁纸");
-            vivo.setOnClickListener(v->startActivity(new Intent(this,VivoLibraryActivity.class)));
-            View xiaomi=ui.inflate("view_system_center_wallpaper",parent);xiaomi.setId(View.generateViewId());ui.cardBackground(xiaomi);
-            ViewGroup.LayoutParams xiaomiLp=vivoLp.getClass().getConstructor(ViewGroup.LayoutParams.class).newInstance(vivoLp);
-            for(java.lang.reflect.Field field:vivoLp.getClass().getFields())if(!java.lang.reflect.Modifier.isStatic(field.getModifiers())&&field.getType().isPrimitive())field.set(xiaomiLp,field.get(vivoLp));
-            replaceAnchor(xiaomiLp,alive.getId(),vivo.getId());parent.addView(xiaomi,xiaomiLp);firstText(xiaomi).setText("小米Alive壁纸");
-            xiaomi.setOnClickListener(v->startActivity(new Intent(this,XiaomiLibraryActivity.class)));
-            // The original tiles are pinned to opposite screen edges, while the
-            // wallpaper bars have a centered content width. Put the original
-            // tiles in one equally divided row with that same width instead.
-            LinearLayout shortcuts=new LinearLayout(this);shortcuts.setId(View.generateViewId());
-            shortcuts.setOrientation(LinearLayout.HORIZONTAL);shortcuts.setBaselineAligned(false);
-            ViewGroup.LayoutParams shortcutLp=wallpaper.getLayoutParams().getClass().getConstructor(ViewGroup.LayoutParams.class).newInstance(wallpaper.getLayoutParams());
-            for(java.lang.reflect.Field field:shortcutLp.getClass().getFields())if(!java.lang.reflect.Modifier.isStatic(field.getModifiers())&&field.getType().isPrimitive())field.set(shortcutLp,field.get(wallpaper.getLayoutParams()));
-            replaceAnchor(shortcutLp,ui.id("id","system_layout_container"),xiaomi.getId());
-            shortcutLp.height=ViewGroup.LayoutParams.WRAP_CONTENT;parent.addView(shortcuts,shortcutLp);
-            int shortcutCount=0;
-            for(boolean font:new boolean[]{false,true}){
-                View tile=ui.find(root,font?"system_center_font":"system_center_theme");Intent destination=ThemeLinks.resolve(this,font);
-                tile.setVisibility(destination==null?View.GONE:View.VISIBLE);
-                parent.removeView(tile);
-                LinearLayout.LayoutParams tileLp=new LinearLayout.LayoutParams(0,ViewGroup.LayoutParams.WRAP_CONTENT,1);
-                if(destination!=null&&shortcutCount>0)tileLp.setMarginStart(ui.getResources().getDimensionPixelSize(ui.id("dimen","common_15dp")));
-                shortcuts.addView(tile,tileLp);
-                ((TextView)ui.find(tile,"item_text")).setText(font?"字体":"主题");
-                ((ImageView)ui.find(tile,"item_image")).setImageResource(ui.id("drawable",font?"icon_system_setting_font":"icon_system_setting_theme"));
-                ui.cardBackground(tile);tile.setOnClickListener(v->ThemeLinks.open(this,destination));
-                if(destination!=null)shortcutCount++;
-            }
-            shortcuts.setVisibility(shortcutCount==0?View.GONE:View.VISIBLE);
-            int extensionAnchor=shortcutCount==0?xiaomi.getId():shortcuts.getId();
-            View extensions=ui.find(root,"system_center_extension");ViewGroup.LayoutParams extensionsLp=extensions.getLayoutParams();
-            replaceAnchor(extensionsLp,ui.id("id","system_center_theme"),extensionAnchor);extensions.setLayoutParams(extensionsLp);
-            View light=ui.find(root,"system_more_light_effect");
-            topGap(light,12);
-            ui.cardBackground(light);
-            ((ImageView)ui.find(light,"item_image")).setImageResource(ui.id("drawable","ic_system_setting_more_light_effect"));
-            ((TextView)ui.find(light,"item_title")).setText("通知光效");
-            ((TextView)ui.find(light,"item_des")).setText(ui.getString(ui.id("string","system_setting_more_des_1")));
-            light.setOnClickListener(v->startActivity(new Intent(this,NotificationSettingsActivity.class)));
-            String[] cards={"system_layout_aod","system_layout_lock","system_layout_launcher"};
-            String[] labels={"息屏","锁屏","桌面"};
+            OnePlusUi ui=new OnePlusUi(this);
+            carousel=ui.carousel(index->cards.get(index),cards.size(),dp(CARD_WIDTH_DP+CARD_GAP_DP),this::updatePreviews,this::onCardSelected);
+            FrameLayout.LayoutParams lp=new FrameLayout.LayoutParams(-1,dp(CARD_HEIGHT_DP),Gravity.CENTER);host.addView(carousel,lp);
+        }catch(Exception|LinkageError error){
+            android.util.Log.e("AliveClean","Original OnePlus carousel failed",error);
+            TextView message=new TextView(this);message.setText("一加原版轮播加载失败，请保留日志重试");message.setTextColor(Color.WHITE);message.setGravity(Gravity.CENTER);host.addView(message,new FrameLayout.LayoutParams(-1,-1));
+        }
+        styleTitle=new TextView(this);styleTitle.setTextColor(0xffd7dce5);styleTitle.setTextSize(18);styleTitle.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);styleTitle.setGravity(Gravity.CENTER);styleTitle.setSingleLine(true);
+        LinearLayout.LayoutParams titleLp=new LinearLayout.LayoutParams(-1,dp(26));titleLp.setMargins(dp(20),dp(6),dp(20),0);
+        page.addView(styleTitle,titleLp);
+        LinearLayout.LayoutParams tabLp=new LinearLayout.LayoutParams(-1,dp(46));tabLp.setMargins(dp(20),dp(8),dp(20),0);
+        page.addView(previewTabs(),tabLp);
+        LinearLayout.LayoutParams controlsLp=new LinearLayout.LayoutParams(-1,-2);controlsLp.setMargins(0,dp(10),0,0);
+        page.addView(controls(),controlsLp);
+        page.addView(new Space(this),new LinearLayout.LayoutParams(-1,0,1));
+        setContinuousAod(true);updateSelectionUi();allowClockStartup();
+    }
+    private View previewTabs(){return modeSlider=new ModeSlider(this);}
+    private void updateTabs(){if(modeSlider!=null)modeSlider.setSelectedMode(previewMode,true);}
+    /** Animated draggable three-way mode switch with matching radii and equal insets. */
+    private final class ModeSlider extends FrameLayout {
+        private static final int CORNER_DP=19;
+        private static final int INSET_DP=4;
+        private static final int ANIMATION_MS=220;
+        private final TextView[] labels=new TextView[3];
+        private final View thumb;
+        private final int inset;
+        private final int touchSlop;
+        private int selected;
+        private float downX;
+        private boolean dragging;
+        ModeSlider(Context context){
+            super(context);
+            inset=dp(INSET_DP);
+            touchSlop=ViewConfiguration.get(context).getScaledTouchSlop();
+            setPadding(inset,inset,inset,inset);
+            setClickable(true);
+            setFocusable(true);
+            GradientDrawable background=new GradientDrawable();
+            background.setColor(0xff34363b);
+            background.setCornerRadius(dp(CORNER_DP));
+            setBackground(background);
+            thumb=new View(context);
+            GradientDrawable pill=new GradientDrawable();
+            pill.setColor(0xff5b5e66);
+            pill.setCornerRadius(dp(CORNER_DP));
+            thumb.setBackground(pill);
+            addView(thumb,new FrameLayout.LayoutParams(0,-1));
+            LinearLayout row=new LinearLayout(context);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setClickable(false);
+            row.setFocusable(false);
             for(int i=0;i<3;i++){
-                final int mode=i;View card=ui.find(root,cards[i]);((TextView)ui.find(card,"item_text")).setText(labels[i]);
-                ImageView image=(ImageView)ui.find(card,"item_image");ViewGroup holder=(ViewGroup)image.getParent();
-                int index=holder.indexOfChild(image);ViewGroup.LayoutParams params=image.getLayoutParams();holder.removeView(image);
-                HomeScenePreview preview=new HomeScenePreview(this,i);preview.setId(image.getId());holder.addView(preview,index,params);previews.add(preview);
-                card.setOnClickListener(v->{if(!preview.openXiaomi())openEditor(mode,false);});card.setContentDescription(labels[i]+"预览");
+                TextView label=new TextView(context);
+                label.setText(MODE_NAMES[i]);
+                label.setGravity(Gravity.CENTER);
+                label.setTextSize(15);
+                label.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);
+                label.setClickable(false);
+                label.setFocusable(false);
+                label.setContentDescription(MODE_NAMES[i]);
+                labels[i]=label;
+                row.addView(label,new LinearLayout.LayoutParams(0,-1,1));
             }
-        }catch(Exception error){SettingsScreen.fail(this,error);}
+            addView(row,new FrameLayout.LayoutParams(-1,-1));
+            updateTextColors(0);
+        }
+        @Override protected void onSizeChanged(int w,int h,int oldw,int oldh){
+            super.onSizeChanged(w,h,oldw,oldh);
+            int segment=segmentWidth();
+            FrameLayout.LayoutParams lp=(FrameLayout.LayoutParams)thumb.getLayoutParams();
+            lp.width=Math.max(1,segment);
+            lp.height=Math.max(1,h-getPaddingTop()-getPaddingBottom());
+            thumb.setLayoutParams(lp);
+            thumb.setX((float)segment*selected);
+        }
+        void setSelectedMode(int index,boolean animate){
+            int next=Math.max(0,Math.min(2,index));
+            boolean changed=selected!=next;
+            selected=next;
+            updateTextColors(selected);
+            if(changed)moveThumb(next,animate);
+        }
+        private int segmentWidth(){
+            int width=getWidth()-getPaddingLeft()-getPaddingRight();
+            return width<=0?0:width/3;
+        }
+        private void moveThumb(int index,boolean animate){
+            int segment=segmentWidth();
+            if(segment<=0)return;
+            float target=(float)segment*index;
+            if(animate){
+                thumb.animate().x(target).setDuration(ANIMATION_MS)
+                    .setInterpolator(new android.view.animation.DecelerateInterpolator()).start();
+            }else{
+                thumb.animate().cancel();
+                thumb.setX(target);
+            }
+        }
+        private int indexAt(float x){
+            int segment=segmentWidth();
+            if(segment<=0)return selected;
+            return Math.max(0,Math.min(2,(int)((x-getPaddingLeft())/segment)));
+        }
+        private void updateTextColors(int highlight){
+            for(int i=0;i<labels.length;i++)labels[i].setTextColor(i==highlight?Color.WHITE:0xffa4a7ae);
+        }
+        @Override public boolean onTouchEvent(MotionEvent event){
+            switch(event.getActionMasked()){
+                case MotionEvent.ACTION_DOWN:
+                    downX=event.getX();
+                    dragging=false;
+                    thumb.animate().cancel();
+                    if(getParent()!=null)getParent().requestDisallowInterceptTouchEvent(true);
+                    return true;
+                case MotionEvent.ACTION_MOVE:
+                    if(Math.abs(event.getX()-downX)>touchSlop)dragging=true;
+                    if(dragging){
+                        int segment=segmentWidth();
+                        float target=event.getX()-getPaddingLeft()-segment/2f;
+                        target=Math.max(0,Math.min(segment*2f,target));
+                        thumb.setX(target);
+                        updateTextColors(indexAt(event.getX()));
+                    }
+                    return true;
+                case MotionEvent.ACTION_UP:
+                    int next=indexAt(event.getX());
+                    boolean changed=next!=selected;
+                    selected=next;
+                    updateTextColors(selected);
+                    moveThumb(next,true);
+                    if(changed)HomeActivity.this.setPreviewMode(next);
+                    performClick();
+                    return true;
+                case MotionEvent.ACTION_CANCEL:
+                    updateTextColors(selected);
+                    moveThumb(selected,true);
+                    return true;
+            }
+            return super.onTouchEvent(event);
+        }
+        @Override public boolean performClick(){super.performClick();return true;}
     }
-    private static TextView firstText(View view){
-        if(view instanceof TextView)return (TextView)view;
-        if(view instanceof ViewGroup){ViewGroup group=(ViewGroup)view;for(int i=0;i<group.getChildCount();i++){TextView result=firstText(group.getChildAt(i));if(result!=null)return result;}}
-        return null;
+    private View controls(){
+        LinearLayout panel=new LinearLayout(this);panel.setOrientation(LinearLayout.VERTICAL);panel.setPadding(dp(20),0,dp(20),0);panel.setBackgroundColor(0xff121417);
+        LinearLayout row=new LinearLayout(this);row.setOrientation(LinearLayout.HORIZONTAL);row.setBaselineAligned(false);
+        Button lock=wallpaperButton("锁屏壁纸",1),home=wallpaperButton("桌面壁纸",2);row.addView(lock,new LinearLayout.LayoutParams(0,dp(42),1));row.addView(new View(this),new LinearLayout.LayoutParams(dp(10),1));row.addView(home,new LinearLayout.LayoutParams(0,dp(42),1));
+        panel.addView(row,new LinearLayout.LayoutParams(-1,dp(42)));
+        Button apply=new Button(this);apply.setText("应用当前风格");apply.setAllCaps(false);apply.setTextColor(Color.WHITE);apply.setTextSize(16);apply.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);GradientDrawable blue=new GradientDrawable();blue.setColor(BLUE);blue.setCornerRadius(dp(22));apply.setBackground(blue);apply.setPadding(dp(18),0,dp(18),0);apply.setOnClickListener(v->applySelectedStyle());
+        LinearLayout.LayoutParams applyLp=new LinearLayout.LayoutParams(-1,dp(46));applyLp.topMargin=dp(10);panel.addView(apply,applyLp);
+        return panel;
     }
-    private void topGap(View view,int dp){
-        ViewGroup.MarginLayoutParams params=(ViewGroup.MarginLayoutParams)view.getLayoutParams();
-        params.topMargin=Math.round(dp*getResources().getDisplayMetrics().density);view.setLayoutParams(params);
+    private Button wallpaperButton(String text,int target){Button button=new Button(this);button.setText(text);button.setAllCaps(false);button.setTextColor(Color.WHITE);button.setTextSize(14);GradientDrawable bg=new GradientDrawable();bg.setColor(0xff343a46);bg.setCornerRadius(dp(20));button.setBackground(bg);button.setOnClickListener(v->pickWallpaper(target));return button;}
+    private void setPreviewMode(int mode){previewMode=Math.max(0,Math.min(2,mode));previews.get(selectedCard).setPreviewMode(previewMode);updateTabs();}
+    private void applySelectedStyle(){
+        SharedPreferences applied=getSharedPreferences(SceneOptions.APPLIED,0),draft=getSharedPreferences(SceneOptions.DRAFT,0);
+        new SceneOptions(applied).save(draft);
+        pendingStyleName=NAMES[selectedCard];
+        draft.edit().putInt("aod",STYLES[selectedCard]).putInt("cosmic",0).putInt("lock",0).putInt("home",6).apply();
+        openWallpaperPicker();
     }
-    private static void replaceAnchor(ViewGroup.LayoutParams params,int previous,int next)throws Exception{
-        // Preserve the original constraints even when the library's public fields
-        // are obfuscated. Only replace references to the known sibling view.
-        boolean changed=false;
-        for(java.lang.reflect.Field field:params.getClass().getFields())if(field.getType()==int.class&&field.getInt(params)==previous){field.setInt(params,next);changed=true;}
-        if(!changed)throw new IllegalStateException("Missing original layout anchor");
+    private boolean applyDirectly(){
+        try{
+            RootBridge.applyWallpaperComponent(this);
+            WallpaperManager manager=WallpaperManager.getInstance(this);
+            WallpaperInfo info=manager.getWallpaperInfo();
+            return info!=null&&new ComponentName(this,CleanWallpaper.class).equals(info.getComponent());
+        }catch(Exception error){
+            android.util.Log.w("AliveClean","Direct wallpaper apply failed",error);
+            return false;
+        }
     }
-    private void openEditor(int mode,boolean photo){
-        Intent intent=new Intent(this,MainActivity.class).putExtra("scene",mode);
-        if(photo)intent.putExtra("photo_editor",true);startActivity(intent);
+    private void openWallpaperPicker(){
+        try{
+            WallpaperManager manager=WallpaperManager.getInstance(this);
+            previousWallpaperId=manager.getWallpaperId(WallpaperManager.FLAG_SYSTEM);
+            previousLockId=manager.getWallpaperId(WallpaperManager.FLAG_LOCK);
+            awaitingWallpaperApply=true;
+            pickerResultReliable=WallpaperPicker.open(this,new ComponentName(this,CleanWallpaper.class),20);
+        }catch(RuntimeException error){
+            awaitingWallpaperApply=false;
+            android.util.Log.w("AliveClean","Wallpaper picker unavailable, trying direct apply",error);
+            applyDirectlyOrReport();
+        }
     }
-    @Override protected void onResume(){super.onResume();int request=++previewLoad;
-        if(activation!=null)activation.start();
-        new Thread(()->{
-            XiaomiHomePreview.Card[] cards;
-            try{cards=XiaomiHomePreview.load(this);}catch(Exception error){android.util.Log.w("OpenAliveXiaomi","Home wallpaper selection",error);cards=new XiaomiHomePreview.Card[3];}
-            XiaomiHomePreview.Card[] selected=cards;runOnUiThread(()->{if(isDestroyed()||request!=previewLoad)return;for(int i=0;i<previews.size();i++)previews.get(i).start(selected[i]);});
-        },"HomeWallpaperPreviews").start();
+    private void applyDirectlyOrReport(){
+        if(applyDirectly())commitSelectedStyle();
+        else Toast.makeText(this,"系统未切换到此壁纸，应用没有成功",Toast.LENGTH_LONG).show();
     }
-    @Override protected void onPause(){previewLoad++;if(activation!=null)activation.stop();for(HomeScenePreview preview:previews)preview.stop();super.onPause();}
-    @Override protected void onDestroy(){if(activation!=null)activation.close();super.onDestroy();}
+    private void verifyPickerOrFallback(final int result){
+        final WallpaperManager manager=WallpaperManager.getInstance(this);
+        if(WallpaperPicker.applied(manager,new ComponentName(this,CleanWallpaper.class),result,pickerResultReliable,previousWallpaperId,previousLockId)){
+            commitSelectedStyle();
+            return;
+        }
+        if(result!=RESULT_OK){
+            Toast.makeText(this,"未应用，已保留当前设置",Toast.LENGTH_LONG).show();
+            return;
+        }
+        // Some OEM pickers return RESULT_OK before WallpaperManagerService
+        // has exposed the new component. Recheck once before using the root fallback.
+        new android.os.Handler(getMainLooper()).postDelayed(()->{
+            if(isFinishing()||isDestroyed())return;
+            if(WallpaperPicker.applied(manager,new ComponentName(this,CleanWallpaper.class),result,pickerResultReliable,previousWallpaperId,previousLockId))
+                commitSelectedStyle();
+            else applyDirectlyOrReport();
+        },900);
+    }
+    private void commitSelectedStyle(){
+        SharedPreferences applied=getSharedPreferences(SceneOptions.APPLIED,0),draft=getSharedPreferences(SceneOptions.DRAFT,0);
+        if(new SceneOptions(draft).save(applied)){
+            SceneProvider.changed(this);
+            Toast.makeText(this,"已应用 "+(pendingStyleName==null?NAMES[selectedCard]:pendingStyleName),Toast.LENGTH_SHORT).show();
+        }else Toast.makeText(this,"应用失败",Toast.LENGTH_SHORT).show();
+    }
+    private void setContinuousAod(boolean checked){SharedPreferences applied=getSharedPreferences(SceneOptions.APPLIED,0),draft=getSharedPreferences(SceneOptions.DRAFT,0);for(SharedPreferences p:new SharedPreferences[]{applied,draft})p.edit().putBoolean("sail_continuous_aod",checked).putBoolean("stereo_aod_animation",checked).putBoolean("cosmic_continuous_aod",checked).apply();SceneProvider.changed(this);}
+    private void pickWallpaper(int target){
+        int request=target==1?41:42;
+        Intent intent=new Intent(Intent.ACTION_PICK,MediaStore.Images.Media.EXTERNAL_CONTENT_URI);intent.setType("image/*");
+        for(android.content.pm.ResolveInfo app:getPackageManager().queryIntentActivities(intent,0)){
+            String pkg=app.activityInfo.packageName;
+            if(pkg.equals("com.coloros.gallery3d")||pkg.equals("com.oplus.gallery")||pkg.equals("com.google.android.apps.photos")){intent.setPackage(pkg);break;}
+        }
+        try{startActivityForResult(intent,request);return;}catch(ActivityNotFoundException ignored){}
+        intent.setPackage(null);
+        try{startActivityForResult(intent,request);return;}catch(ActivityNotFoundException e){
+            Intent fallback=new Intent(Intent.ACTION_OPEN_DOCUMENT);fallback.addCategory(Intent.CATEGORY_OPENABLE);fallback.setType("image/*");
+            try{startActivityForResult(fallback,request);}catch(ActivityNotFoundException ignored){Toast.makeText(this,"未找到相册",Toast.LENGTH_SHORT).show();}
+        }
+    }
+    @Override protected void onActivityResult(int request,int result,Intent data){
+        super.onActivityResult(request,result,data);
+        if(request==20&&awaitingWallpaperApply){
+            awaitingWallpaperApply=false;
+            verifyPickerOrFallback(result);
+            return;
+        }
+        if((request==41||request==42)&&result==RESULT_OK&&data!=null&&data.getData()!=null)pickWallpaperImage(data.getData(),request==41?1:2);
+    }
+    private void pickWallpaperImage(Uri uri,int target){
+        new Thread(()->{File file=null;try{file=File.createTempFile("wallpaper-", ".image",getFilesDir());try(InputStream in=getContentResolver().openInputStream(uri);OutputStream out=new FileOutputStream(file)){if(in==null)throw new IOException("无法读取图片");byte[] b=new byte[65536];for(int n;(n=in.read(b))!=-1;)out.write(b,0,n);}if(BitmapFactory.decodeFile(file.getPath())==null)throw new IOException("图片格式不支持");File picked=file;runOnUiThread(()->commitWallpaper(picked,target));}catch(Exception error){if(file!=null)file.delete();runOnUiThread(()->Toast.makeText(this,"壁纸导入失败："+error.getMessage(),Toast.LENGTH_LONG).show());}}, "WallpaperImport").start();
+    }
+    private void commitWallpaper(File file,int target){SharedPreferences applied=getSharedPreferences(SceneOptions.APPLIED,0),draft=getSharedPreferences(SceneOptions.DRAFT,0);new SceneOptions(applied).save(draft);SharedPreferences.Editor edit=draft.edit().putInt("aod",STYLES[selectedCard]).putInt("cosmic",0).putInt("lock",0).putInt("home",6);if(target==1)edit.putString("photo",file.getName());else edit.putString("home_photo",file.getName()).putBoolean("home_follow_lock",false);edit.apply();if(new SceneOptions(draft).save(applied)){SceneProvider.changed(this);Toast.makeText(this,target==1?"已设置锁屏壁纸":"已设置桌面壁纸",Toast.LENGTH_SHORT).show();}}
+    private View card(int position){FrameLayout shell=new FrameLayout(this);shell.setLayoutParams(new ViewGroup.LayoutParams(dp(CARD_WIDTH_DP),dp(CARD_HEIGHT_DP)));shell.setClipToOutline(true);shell.setOutlineProvider(new ViewOutlineProvider(){public void getOutline(View view,android.graphics.Outline outline){outline.setRoundRect(0,0,view.getWidth(),view.getHeight(),dp(44));}});shell.setBackgroundColor(0xff101216);HomeScenePreview preview=new HomeScenePreview(this,0,STYLES[position]);previews.add(preview);shell.addView(preview,new FrameLayout.LayoutParams(-1,-1));View border=new View(this);GradientDrawable outline=new GradientDrawable();outline.setColor(Color.TRANSPARENT);outline.setStroke(dp(3),BLUE);outline.setCornerRadius(dp(44));border.setBackground(outline);border.setVisibility(View.INVISIBLE);shell.addView(border,new FrameLayout.LayoutParams(-1,-1));borders.add(border);shell.setClickable(false);shell.setFocusable(false);shell.setContentDescription(NAMES[position]+"动态息屏预览");return shell;}
+    private void onCardSelected(int position){if(position<0||position>=previews.size())return;selectedCard=position;previews.get(position).setPreviewMode(previewMode);updatePreviews();updateSelectionUi();}
+    private void updateSelectionUi(){if(styleTitle!=null)styleTitle.setText(NAMES[Math.max(0,Math.min(selectedCard,NAMES.length-1))]);for(int i=0;i<borders.size();i++)borders.get(i).setVisibility(i==selectedCard?View.VISIBLE:View.INVISIBLE);updateTabs();}
+    private void updatePreviews(){Rect bounds=new Rect();for(int i=0;i<cards.size();i++){View card=cards.get(i);boolean visible=resumed&&card.isShown()&&card.getGlobalVisibleRect(bounds)&&bounds.width()>dp(12);HomeScenePreview preview=previews.get(i);boolean selected=i==selectedCard;preview.update(visible,selected);}}
+    private void allowClockStartup(){if(getSharedPreferences("native_clock_startup",0).getBoolean("allowed",false))return;new Thread(()->{try{RootBridge.allowClockStartup(this);getSharedPreferences("native_clock_startup",0).edit().putBoolean("allowed",true).apply();}catch(Exception error){android.util.Log.w("OpenAliveClock","Clock startup setup unavailable",error);}},"OpenAliveClockStartup").start();}
+    private int dp(int value){return Math.round(value*getResources().getDisplayMetrics().density);}
+    @Override protected void onResume(){super.onResume();resumed=true;if(carousel!=null)carousel.post(this::updatePreviews);}
+    @Override protected void onPause(){resumed=false;for(HomeScenePreview preview:previews)preview.update(false,false);super.onPause();}
+    @Override protected void onDestroy(){for(HomeScenePreview preview:previews)preview.release();super.onDestroy();}
 }

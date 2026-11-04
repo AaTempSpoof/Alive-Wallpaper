@@ -4,7 +4,10 @@ import hashlib,json,os,shutil,struct,subprocess,sys,urllib.request,zipfile
 import xml.etree.ElementTree as ET
 from apk_layout import RESOURCE_ALIGNMENT,write_entry,verify_apk
 
-ROOT=Path(__file__).resolve().parents[1]
+SOURCE_ROOT=Path(__file__).resolve().parents[1]
+# Windows aapt2 may fail to open non-ASCII workspace paths. Use an ASCII
+# junction for Windows resource tools while WSL keeps the real source path.
+ROOT=Path(os.environ.get('OPENALIVE_ROOT',str(SOURCE_ROOT)))
 WIN=os.name=='nt';EXE='.exe' if WIN else ''
 SDK=Path(os.environ.get('ANDROID_HOME',str(Path.home()/'AppData/Local/Android/Sdk')))
 JAVA=Path(os.environ.get('JAVA_HOME','C:/Program Files/Java/jdk-17' if WIN else '/usr/lib/jvm/java-17-openjdk-amd64'))/'bin'
@@ -22,12 +25,15 @@ def sha(p):return hashlib.sha256(p.read_bytes()).hexdigest()
 def javac_args(name,args):
     # javac argument files avoid command length limits; paths use forward slashes.
     p=OUT/(name+'.args')
-    p.write_text('\n'.join(json.dumps(str(a).replace('\\','/')) for a in args),encoding='utf8')
+    p.write_text('\n'.join(json.dumps(str(a).replace('\\','/'),ensure_ascii=False) for a in args),encoding='utf8')
     run(JAVA/('javac'+EXE),'@'+str(p))
 
 manifest=ET.parse(ROOT/'app/AndroidManifest.xml').getroot()
 version=manifest.attrib['{http://schemas.android.com/apk/res/android}versionName']
-apk=DIST/('OpenAlive-'+version+'-arm64-v8a.apk')
+application=manifest.find('application')
+label=application.attrib['{http://schemas.android.com/apk/res/android}label'] if application is not None else 'OpenAlive'
+app_name=label.replace(' ','').strip() or 'OpenAlive'
+apk=DIST/(app_name+'-'+version+'.apk')
 
 # Pin the compile-only API. It is never added to the APK.
 xposed=OUT/'xposed-api-82.jar'
@@ -54,9 +60,9 @@ for library in ort_native:
         if struct.unpack_from('<I',data,offset)[0]==1 and struct.unpack_from('<Q',data,offset+48)[0]<16384:
             raise ValueError('Native runtime must support 16 KB pages: '+library.name)
 
-for script in ['check_layout.py','check_wallpaper_picker.py','check_clock_scope.py','check_xiaomi_assets.py','check_xiaomi_desktop.py','check_xiaomi_aod_density.py','check_unlock_handoff.py','check_fingerprint_clock.py','check_fingerprint_clock_mask.py']:run(sys.executable,ROOT/'tools'/script)
+for script in ['check_layout.py','check_wallpaper_picker.py','check_clock_scope.py','check_hyperos_bridge.py','check_xiaomi_desktop.py','check_xiaomi_aod_density.py','check_unlock_handoff.py','check_fingerprint_clock.py','check_fingerprint_clock_mask.py']:run(sys.executable,ROOT/'tools'/script)
 if WIN:
-    linux='/mnt/'+ROOT.drive[0].lower()+ROOT.as_posix()[2:]
+    linux='/mnt/'+SOURCE_ROOT.drive[0].lower()+SOURCE_ROOT.as_posix()[2:]
     # Local Windows builds use the existing WSL NDK; CI builds directly on Linux.
     import shlex
     run('wsl.exe','--','bash','-lc','cd '+shlex.quote(linux)+' && export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$HOME/android-ndk-r29/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android28-clang" && "$HOME/.cargo/bin/cargo" test --locked && "$HOME/.cargo/bin/cargo" build --locked --release --target aarch64-linux-android')
@@ -66,10 +72,49 @@ else:
     run('cargo','test','--locked',env=env)
     run('cargo','build','--locked','--release','--target','aarch64-linux-android',env=env)
 
-run(BT/('aapt2'+EXE),'compile','--dir',VENDOR/'res','-o',OUT/'vendor-res.zip')
-run(BT/('aapt2'+EXE),'compile','--dir',ROOT/'app/res','-o',OUT/'app-res.zip')
-run(BT/('aapt2'+EXE),'link','-o',OUT/'base.apk','--manifest',ROOT/'app/AndroidManifest.xml','-I',ANDROID,
-    '--auto-add-overlay','--java',OUT/'generated','-A',ROOT/'app/assets',OUT/'vendor-res.zip','-R',OUT/'app-res.zip')
+def compile_vendor_resources():
+    # Some aapt2 Windows builds cannot open resource trees under non-ASCII paths.
+    source=VENDOR/'res'; output=OUT/'vendor-res.zip'
+    try:
+        run(BT/('aapt2'+EXE),'compile','--dir',source,'-o',output)
+        return
+    except subprocess.CalledProcessError:
+        import shutil,tempfile
+        with tempfile.TemporaryDirectory(prefix='alive-res-') as temp:
+            temp=Path(temp)
+            shutil.copytree(source,temp/'res')
+            run(BT/('aapt2'+EXE),'compile','--dir',temp/'res','-o',temp/'vendor-res.zip')
+            shutil.copyfile(temp/'vendor-res.zip',output)
+compile_vendor_resources()
+def compile_app_resources():
+    source=ROOT/'app/res'; output=OUT/'app-res.zip'
+    try:
+        run(BT/('aapt2'+EXE),'compile','--dir',source,'-o',output)
+        return
+    except subprocess.CalledProcessError:
+        import shutil,tempfile
+        with tempfile.TemporaryDirectory(prefix='alive-app-res-') as temp:
+            temp=Path(temp)
+            shutil.copytree(source,temp/'res')
+            run(BT/('aapt2'+EXE),'compile','--dir',temp/'res','-o',temp/'app-res.zip')
+            shutil.copyfile(temp/'app-res.zip',output)
+compile_app_resources()
+def link_apk():
+    # Windows aapt2 also rejects asset trees under non-ASCII paths.
+    assets=ROOT/"app/assets"
+    try:
+        run(BT/("aapt2"+EXE),"link","-o",OUT/"base.apk","--manifest",ROOT/"app/AndroidManifest.xml","-I",ANDROID,
+            "--auto-add-overlay","--java",OUT/"generated","-A",assets,OUT/"vendor-res.zip","-R",OUT/"app-res.zip")
+        return
+    except subprocess.CalledProcessError:
+        import shutil,tempfile
+        with tempfile.TemporaryDirectory(prefix="alive-link-") as temp:
+            temp=Path(temp)
+            shutil.copytree(assets,temp/"assets")
+            run(BT/("aapt2"+EXE),"link","-o",temp/"base.apk","--manifest",ROOT/"app/AndroidManifest.xml","-I",ANDROID,
+                "--auto-add-overlay","--java",OUT/"generated","-A",temp/"assets",OUT/"vendor-res.zip","-R",OUT/"app-res.zip")
+            shutil.copyfile(temp/"base.apk",OUT/"base.apk")
+link_apk()
 javac_args('api',['-encoding','UTF-8','-source','8','-target','8','-bootclasspath',ANDROID,'-d',OUT/'ui-api',*sorted((ROOT/'tools/ui-api').rglob('*.java'))])
 # Compile the Java 8 decoder from the pinned upstream sources. No decoder APK
 # download, native executable or runtime network dependency is needed.
@@ -130,6 +175,6 @@ with zipfile.ZipFile(apk) as z:
     for library in ort_native:assert z.read('lib/arm64-v8a/'+library.name)==library.read_bytes()
     assert not any(n.startswith('assets/video/') for n in z.namelist())
 (DIST/'build-report.json').write_text(json.dumps(report,indent=2)+'\n',encoding='utf8',newline='\n')
-(DIST/'SHA256SUMS').write_text(report['sha256']+'  '+apk.name+'\n',encoding='ascii',newline='\n')
-(DIST/'MD5SUMS').write_text(hashlib.md5(apk.read_bytes()).hexdigest()+'  '+apk.name+'\n',encoding='ascii',newline='\n')
+(DIST/'SHA256SUMS').write_text(report['sha256']+'  '+apk.name+'\n',encoding='utf-8',newline='\n')
+(DIST/'MD5SUMS').write_text(hashlib.md5(apk.read_bytes()).hexdigest()+'  '+apk.name+'\n',encoding='utf-8',newline='\n')
 print(json.dumps(report,indent=2))

@@ -6,6 +6,7 @@
 
 - `vendor/flyme/`：官方 UI 的预编译 DEX 和配套资源。
 - `app/assets/ui/`、`app/assets/clock/`、`app/res/font/`：官方 UI 资源和字体。`settings-ui.apk` 保留 WallpaperSetting 原始布局、控件和资源，其来源校验值见 `settings-ui-source.json`。
+- `app/assets/ui/oneplus-ui.apk`：一加系统 Wallpapers APK 的原始 DEX、资源表、布局及素材，通过隔离类加载器在模块进程内运行 `COUIRecyclerView`、`WallpaperCarouselLayoutManager` 及原版居中滚动动画。保留条目内容不变，排除未调用的原生库与签名元数据；来源及逐文件 SHA-256 见 `oneplus-ui-source.json`，导入工具为 `tools/import_oneplus_ui.py`。仅用于当前本地开发验证，尚未确认再分发授权，不属于项目 MIT 授权范围。
 - `app/assets/shader/`、`native/shaders.rs`：官方着色器及生成的嵌入文件；文件内的第三方版权声明保留。
 - `app/assets/masks/`、`app/assets/editor/`、`app/assets/wallpapers/`：效果遮罩、预览图和壁纸。
 - `app/assets/examples/`：示例图片，版权归原作者所有。
@@ -15,7 +16,6 @@
 - `app/assets/flyme-video/`：Flyme 9 系统公共组件 1.8.15 的浪流、深潜、涟漪原始视频、缩略图及着色器，来源和文件校验值见同目录 `source.json`。
 - `app/assets/stereo/`：同一原包的 3D 壁纸 V4–V6 主图、深度图、缩略图及两阶段视差着色器，来源、校验值与兼容修改见 `provenance.json`。这些资产保留原权利人的权利。
 - `docs/donate.png`：项目维护者提供的赞赏码，不属于代码许可范围。
-- `app/assets/notification/`：魅族 22 SystemUI 的原始通知光环和双侧光带动画，来源及文件校验值见同目录 `source.json`；使用已包含的官方 SVGA 运行库解码和绘制。
 - `app/assets/native-clock/`：魅族 22 SystemUI 与澎湃 MIUIAod 的数字字体。`original/` 保留未修改文件，使用副本按 ColorOS 固定字体约定调整行高与留白，字形和字宽不变；来源、适配说明及校验值见 `source.json`。
 - `app/assets/native-clock/templates/flyme/`：魅族 22 SystemUIEditor 的 ALIVE 横排、竖排息屏时钟模板及配套字体，保留原始 XML 和字体；来源及校验值见各模板的 `source.json`。
 - `app/assets/native-clock/runtime/hyperos/fonts/`：澎湃备用机系统分区的原始时钟字体，供独立澎湃控件使用，未修改字形或度量；来源及校验值见上级目录 `source.json`。

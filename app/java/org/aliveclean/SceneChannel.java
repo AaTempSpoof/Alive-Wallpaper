@@ -72,9 +72,15 @@ final class SceneChannel {
     static void add(Listener listener){
         listeners.add(listener);
         if(lastArea!=null)listener.region(lastArea);
-        if(lastScene!=null)listener.scene(lastScene.getInt("mode"),false,lastScene.getLong("time"),lastScene.getInt("phase",0),lastScene.getLong("clock_wake",0),lastScene.getFloat("vivo_night_level",Float.NaN),lastScene.getFloat("vivo_aod_mask",Float.NaN));
+        if(lastScene!=null){
+            int mode=lastScene.getInt("mode");long time=lastScene.getLong("time");
+            long age=Math.max(0,android.os.SystemClock.uptimeMillis()-time);
+            boolean animate=lastScene.getBoolean("animate",true)&&age<replayWindow(mode,lastScene.getInt("phase",0));
+            listener.scene(mode,animate,time,lastScene.getInt("phase",0),lastScene.getLong("clock_wake",0),lastScene.getFloat("vivo_night_level",Float.NaN),lastScene.getFloat("vivo_aod_mask",Float.NaN));
+        }
         listener.backdrop(lastBackdrop);
     }
+    private static long replayWindow(int mode,int phase){if(mode==0||phase==1)return 3500L;if(mode==1||phase==2)return 2400L;return 1800L;}
     static void remove(Listener listener){listeners.remove(listener);}
     static AodRegion decode(Bundle b){
         if(b==null||b.getInt("version",0)!=1)return null;

@@ -25,19 +25,27 @@ final class HomeActivationStatus {
     private final Runnable refresh=this::queryModule;
 
     HomeActivationStatus(Activity activity,SettingsUi ui,LinearLayout screen){
+        this(activity,screen,ui.color("colorOnSurface"));
+    }
+
+    HomeActivationStatus(Activity activity,ViewGroup screen){
+        this(activity,screen,0xfff1f3f5);
+    }
+
+    private HomeActivationStatus(Activity activity,ViewGroup screen,int textColor){
         this.activity=activity;
         LinearLayout row=new LinearLayout(activity);row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);row.setPadding(dp(24),dp(6),dp(24),dp(10));
-        moduleLabel=indicator(row,ui,moduleDot,"LSP 检测中");
+        moduleLabel=indicator(row,textColor,moduleDot,"LSP 检测中");
         View gap=new View(activity);row.addView(gap,new LinearLayout.LayoutParams(dp(22),1));
-        rootLabel=indicator(row,ui,rootDot,"ROOT 检测中");
+        rootLabel=indicator(row,textColor,rootDot,"ROOT 检测中");
         row.setOnClickListener(v->start(true));
         screen.addView(row,new LinearLayout.LayoutParams(-1,-2));
     }
-    private TextView indicator(LinearLayout row,SettingsUi ui,GradientDrawable dot,String text){
+    private TextView indicator(LinearLayout row,int textColor,GradientDrawable dot,String text){
         View light=new View(activity);dot.setShape(GradientDrawable.OVAL);dot.setColor(0xff95999f);light.setBackground(dot);
         row.addView(light,new LinearLayout.LayoutParams(dp(7),dp(7)));
-        TextView label=new TextView(activity);label.setTextSize(13);label.setTextColor(ui.color("colorOnSurface"));label.setText(text);
+        TextView label=new TextView(activity);label.setTextSize(13);label.setTextColor(textColor);label.setText(text);
         LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-2,-2);lp.setMarginStart(dp(9));row.addView(label,lp);return label;
     }
 

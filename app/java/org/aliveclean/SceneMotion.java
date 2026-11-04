@@ -35,7 +35,7 @@ final class SceneMotion {
     private ObjectAnimator positionX,positionY;
     private float positionStartX,positionStartY;
     private long lastFrame;
-    private float aodX,aodY=.335f;
+    private float aodX,aodY=.205f;
     private int mode;
     private static final Interpolator DEFAULT=new AccelerateDecelerateInterpolator();
     private static final Interpolator LINEAR=new LinearInterpolator();
@@ -77,7 +77,7 @@ final class SceneMotion {
         return result;
     }
     private float[] lensState(int scene) {
-        if(scene==0)return new float[]{22,.22f,9,1,0,aodX,aodY,1,0,Float.NaN};
+        if(scene==0)return new float[]{22,aod==0?.29f:.33f,9,1,0,aodX,aodY,1,0,Float.NaN};
         return new float[]{scene==1?0:16,expandedScale,0,0,-149,0,0,0,1.24f,-360};
     }
     private float[] glassState(int scene) {
